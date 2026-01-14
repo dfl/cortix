@@ -30,13 +30,13 @@ public:
         analyser_.configure(config);
 
         // Allocate output buffers
-        magnitudesLinear_.resize(numBands);
-        magnitudesDb_.resize(numBands);
+        envelope_.resize(numBands);
+        envelopeDb_.resize(numBands);
         centerFreqs_.resize(numBands);
 
         // Cache center frequencies
         for (int i = 0; i < numBands; i++) {
-            centerFreqs_[i] = analyser_.getCenterHz(i);
+            centerFreqs_[i] = analyser_.centerHz(i);
         }
     }
 
@@ -49,12 +49,12 @@ public:
         config.smoothingMs = smoothingMs;
         analyser_.configure(config);
 
-        magnitudesLinear_.resize(numBands);
-        magnitudesDb_.resize(numBands);
+        envelope_.resize(numBands);
+        envelopeDb_.resize(numBands);
         centerFreqs_.resize(numBands);
 
         for (int i = 0; i < numBands; i++) {
-            centerFreqs_[i] = analyser_.getCenterHz(i);
+            centerFreqs_[i] = analyser_.centerHz(i);
         }
     }
 
@@ -66,11 +66,12 @@ public:
     /// inputPtr should be obtained from HEAPF32
     void processBlock(std::uintptr_t inputPtr, int numSamples) {
         const float* input = reinterpret_cast<const float*>(inputPtr);
-        analyser_.processBlock(input, numSamples);
+        analyser_.process(input, numSamples);
 
-        // Update cached magnitudes
-        analyser_.getMagnitudes(magnitudesLinear_.data());
-        analyser_.getMagnitudesDb(magnitudesDb_.data(), -100.0f);
+        // Update cached envelope
+        const auto& env = analyser_.envelope();
+        std::copy(env.begin(), env.end(), envelope_.begin());
+        analyser_.envelopeDb(envelopeDb_.data(), -100.0f);
     }
 
     /// Process interleaved stereo (converts to mono internally)
@@ -83,25 +84,28 @@ public:
             monoBuffer_[i] = (input[i * 2] + input[i * 2 + 1]) * 0.5f;
         }
 
-        analyser_.processBlock(monoBuffer_.data(), numFrames);
-        analyser_.getMagnitudes(magnitudesLinear_.data());
-        analyser_.getMagnitudesDb(magnitudesDb_.data(), -100.0f);
+        analyser_.process(monoBuffer_.data(), numFrames);
+        const auto& env = analyser_.envelope();
+        std::copy(env.begin(), env.end(), envelope_.begin());
+        analyser_.envelopeDb(envelopeDb_.data(), -100.0f);
     }
 
     int getNumBands() const {
-        return analyser_.getNumBands();
+        return analyser_.numBands();
     }
 
-    float getMagnitude(int band) const {
-        if (band >= 0 && band < (int)magnitudesLinear_.size()) {
-            return magnitudesLinear_[band];
+    /// Get envelope (smoothed magnitude) for a band
+    float envelope(int band) const {
+        if (band >= 0 && band < (int)envelope_.size()) {
+            return envelope_[band];
         }
         return 0.0f;
     }
 
-    float getMagnitudeDb(int band) const {
-        if (band >= 0 && band < (int)magnitudesDb_.size()) {
-            return magnitudesDb_[band];
+    /// Get envelope in dB for a band
+    float envelopeDb(int band) const {
+        if (band >= 0 && band < (int)envelopeDb_.size()) {
+            return envelopeDb_[band];
         }
         return -100.0f;
     }
@@ -113,14 +117,14 @@ public:
         return 0.0f;
     }
 
-    /// Get pointer to linear magnitudes buffer (for efficient bulk access)
-    std::uintptr_t getMagnitudesPtr() const {
-        return reinterpret_cast<std::uintptr_t>(magnitudesLinear_.data());
+    /// Get pointer to envelope buffer (for efficient bulk access)
+    std::uintptr_t getEnvelopePtr() const {
+        return reinterpret_cast<std::uintptr_t>(envelope_.data());
     }
 
-    /// Get pointer to dB magnitudes buffer
-    std::uintptr_t getMagnitudesDbPtr() const {
-        return reinterpret_cast<std::uintptr_t>(magnitudesDb_.data());
+    /// Get pointer to envelope dB buffer
+    std::uintptr_t getEnvelopeDbPtr() const {
+        return reinterpret_cast<std::uintptr_t>(envelopeDb_.data());
     }
 
     /// Get pointer to center frequencies buffer
@@ -130,8 +134,8 @@ public:
 
 private:
     Analyser analyser_;
-    std::vector<float> magnitudesLinear_;
-    std::vector<float> magnitudesDb_;
+    std::vector<float> envelope_;
+    std::vector<float> envelopeDb_;
     std::vector<float> centerFreqs_;
     std::vector<float> monoBuffer_;
 };
@@ -174,11 +178,11 @@ EMSCRIPTEN_BINDINGS(cortix) {
         .function("processBlock", &AnalyserWasm::processBlock)
         .function("processBlockStereo", &AnalyserWasm::processBlockStereo)
         .function("getNumBands", &AnalyserWasm::getNumBands)
-        .function("getMagnitude", &AnalyserWasm::getMagnitude)
-        .function("getMagnitudeDb", &AnalyserWasm::getMagnitudeDb)
+        .function("envelope", &AnalyserWasm::envelope)
+        .function("envelopeDb", &AnalyserWasm::envelopeDb)
         .function("getCenterHz", &AnalyserWasm::getCenterHz)
-        .function("getMagnitudesPtr", &AnalyserWasm::getMagnitudesPtr)
-        .function("getMagnitudesDbPtr", &AnalyserWasm::getMagnitudesDbPtr)
+        .function("getEnvelopePtr", &AnalyserWasm::getEnvelopePtr)
+        .function("getEnvelopeDbPtr", &AnalyserWasm::getEnvelopeDbPtr)
         .function("getCenterFreqsPtr", &AnalyserWasm::getCenterFreqsPtr);
 
     // Scale conversion functions
