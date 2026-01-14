@@ -12,6 +12,7 @@
 
 /// Convert frequency in Hz to Bark scale
 #[inline]
+#[must_use]
 pub fn hz_to_bark(hz: f32) -> f32 {
     26.81 * hz / (1960.0 + hz) - 0.53
 }

@@ -2,10 +2,10 @@
 name = "cortix"
 version = "0.1.0"
 edition = "2021"
-authors = ["Cortix Contributors"]
+authors = ["David Lowenfels"]
 description = "Perceptual audio spectrum analyser with Gammatone filterbanks"
 license = "MIT"
-repository = "https://github.com/cortix/cortix-rs"
+repository = "https://github.com/dfl/cortix"
 keywords = ["audio", "dsp", "spectrum", "gammatone", "filterbank"]
 categories = ["multimedia::audio", "science"]
 

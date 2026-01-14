@@ -5,7 +5,7 @@
 //!
 //! Designed for real-time audio visualization with perceptual accuracy.
 
-use crate::gammatone::{FilterbankConfig, GammatoneFilterbank};
+use crate::gammatone::GammatoneFilterbank;
 use crate::scales::{BandInfo, Scale};
 
 //=============================================================================
@@ -25,29 +25,22 @@ pub enum AnalysisMode {
 }
 
 //=============================================================================
-// Analyser Configuration
+// Analyser Builder
 //=============================================================================
 
-/// Configuration for the spectrum analyser
+/// Builder for creating an Analyser with custom configuration
 #[derive(Debug, Clone)]
-pub struct AnalyserConfig {
-    /// Analysis method
-    pub mode: AnalysisMode,
-    /// Frequency scale for band spacing
-    pub scale: Scale,
-    /// Number of frequency bands
-    pub num_bands: usize,
-    /// Minimum frequency in Hz
-    pub min_hz: f32,
-    /// Maximum frequency in Hz
-    pub max_hz: f32,
-    /// Sample rate in Hz
-    pub sample_rate: f32,
-    /// Envelope smoothing time constant in milliseconds
-    pub smoothing_ms: f32,
+pub struct AnalyserBuilder {
+    mode: AnalysisMode,
+    scale: Scale,
+    num_bands: usize,
+    min_hz: f32,
+    max_hz: f32,
+    sample_rate: f32,
+    smoothing_ms: f32,
 }
 
-impl Default for AnalyserConfig {
+impl Default for AnalyserBuilder {
     fn default() -> Self {
         Self {
             mode: AnalysisMode::Gammatone,
@@ -61,66 +54,115 @@ impl Default for AnalyserConfig {
     }
 }
 
+impl AnalyserBuilder {
+    /// Create a new builder with default settings
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the analysis mode
+    pub fn mode(mut self, mode: AnalysisMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Set the frequency scale for band spacing
+    pub fn scale(mut self, scale: Scale) -> Self {
+        self.scale = scale;
+        self
+    }
+
+    /// Set the number of frequency bands
+    pub fn bands(mut self, num_bands: usize) -> Self {
+        self.num_bands = num_bands;
+        self
+    }
+
+    /// Set the frequency range in Hz
+    pub fn range(mut self, min_hz: f32, max_hz: f32) -> Self {
+        self.min_hz = min_hz;
+        self.max_hz = max_hz;
+        self
+    }
+
+    /// Set the sample rate in Hz
+    pub fn sample_rate(mut self, sample_rate: f32) -> Self {
+        self.sample_rate = sample_rate;
+        self
+    }
+
+    /// Set the envelope smoothing time in milliseconds
+    pub fn smoothing(mut self, smoothing_ms: f32) -> Self {
+        self.smoothing_ms = smoothing_ms;
+        self
+    }
+
+    /// Build the analyser
+    #[must_use]
+    pub fn build(self) -> Analyser {
+        let gammatone = GammatoneFilterbank::builder()
+            .bands(self.num_bands)
+            .range(self.min_hz, self.max_hz)
+            .sample_rate(self.sample_rate)
+            .scale(self.scale)
+            .smoothing(self.smoothing_ms)
+            .build();
+
+        Analyser {
+            mode: self.mode,
+            num_bands: self.num_bands,
+            sample_rate: self.sample_rate,
+            gammatone,
+            mono_buffer: Vec::new(),
+        }
+    }
+}
+
 //=============================================================================
 // Spectrum Analyser
-// Main interface for perceptual spectrum analysis
 //=============================================================================
 
 /// Main spectrum analyser for perceptual audio analysis
+///
+/// # Example
+///
+/// ```
+/// use cortix::{Analyser, Scale};
+///
+/// let mut analyser = Analyser::builder()
+///     .sample_rate(48000.0)
+///     .bands(40)
+///     .scale(Scale::ERB)
+///     .build();
+///
+/// // Process audio and get envelope
+/// let audio = vec![0.0f32; 512];
+/// let envelope = analyser.process(&audio);
+/// ```
 #[derive(Debug, Clone)]
 pub struct Analyser {
-    config: AnalyserConfig,
+    mode: AnalysisMode,
+    num_bands: usize,
+    sample_rate: f32,
     gammatone: GammatoneFilterbank,
     mono_buffer: Vec<f32>,
 }
 
 impl Default for Analyser {
     fn default() -> Self {
-        Self::new()
+        Self::builder().build()
     }
 }
 
 impl Analyser {
+    /// Create a builder for custom configuration
+    pub fn builder() -> AnalyserBuilder {
+        AnalyserBuilder::new()
+    }
+
     /// Create a new analyser with default configuration
     pub fn new() -> Self {
-        let config = AnalyserConfig::default();
-        let mut analyser = Self {
-            config: config.clone(),
-            gammatone: GammatoneFilterbank::new(),
-            mono_buffer: Vec::new(),
-        };
-        analyser.configure(config);
-        analyser
-    }
-
-    /// Create an analyser with the given configuration
-    pub fn with_config(config: AnalyserConfig) -> Self {
-        let mut analyser = Self {
-            config: config.clone(),
-            gammatone: GammatoneFilterbank::new(),
-            mono_buffer: Vec::new(),
-        };
-        analyser.configure(config);
-        analyser
-    }
-
-    /// Configure the analyser
-    pub fn configure(&mut self, config: AnalyserConfig) {
-        self.config = config.clone();
-
-        match config.mode {
-            AnalysisMode::Gammatone => {
-                let gt_config = FilterbankConfig {
-                    num_bands: config.num_bands,
-                    min_hz: config.min_hz,
-                    max_hz: config.max_hz,
-                    sample_rate: config.sample_rate,
-                    spacing: config.scale,
-                    smoothing_ms: config.smoothing_ms,
-                };
-                self.gammatone.configure(gt_config);
-            }
-        }
+        Self::default()
     }
 
     /// Reset analyser state
@@ -128,84 +170,70 @@ impl Analyser {
         self.gammatone.reset();
     }
 
-    /// Process a single sample
-    #[inline]
-    pub fn process(&mut self, input: f32) {
-        match self.config.mode {
+    /// Process a block of samples and return the envelope
+    ///
+    /// The returned slice contains the smoothed magnitude for each frequency band.
+    #[must_use]
+    pub fn process(&mut self, input: &[f32]) -> &[f32] {
+        match self.mode {
             AnalysisMode::Gammatone => {
                 self.gammatone.process(input);
+                self.gammatone.envelope()
             }
         }
     }
 
-    /// Process a block of samples (mono)
-    pub fn process_block(&mut self, input: &[f32]) {
-        match self.config.mode {
-            AnalysisMode::Gammatone => {
-                self.gammatone.process_block(input);
-            }
-        }
-    }
+    /// Process a stereo block (averages L+R) and return the envelope
+    #[must_use]
+    pub fn process_stereo(&mut self, left: &[f32], right: &[f32]) -> &[f32] {
+        let num_samples = left.len().min(right.len());
 
-    /// Process a stereo block (averages L+R)
-    pub fn process_block_stereo(&mut self, input_l: &[f32], input_r: &[f32]) {
-        let num_samples = input_l.len().min(input_r.len());
-
-        // Mix to mono for analysis
         self.mono_buffer.resize(num_samples, 0.0);
         for i in 0..num_samples {
-            self.mono_buffer[i] = (input_l[i] + input_r[i]) * 0.5;
+            self.mono_buffer[i] = (left[i] + right[i]) * 0.5;
         }
-        self.process_block(&self.mono_buffer.clone());
+
+        // Need to clone to avoid borrow issues
+        let mono = self.mono_buffer.clone();
+        self.process(&mono)
     }
 
-    /// Get the number of bands
+    /// Get the current envelope (smoothed magnitudes)
+    ///
+    /// Returns the same data as the last `process()` call.
+    #[must_use]
+    pub fn envelope(&self) -> &[f32] {
+        self.gammatone.envelope()
+    }
+
+    /// Get the envelope in decibels
+    #[must_use]
+    pub fn envelope_db(&self) -> Vec<f32> {
+        self.gammatone.envelope_db(-100.0)
+    }
+
+    /// Get the number of frequency bands
+    #[must_use]
     pub fn num_bands(&self) -> usize {
-        self.config.num_bands
+        self.num_bands
     }
 
-    /// Get the sample rate
+    /// Get the sample rate in Hz
+    #[must_use]
     pub fn sample_rate(&self) -> f32 {
-        self.config.sample_rate
+        self.sample_rate
     }
 
-    /// Get raw magnitudes (linear scale)
-    pub fn magnitudes(&self) -> &[f32] {
-        match self.config.mode {
-            AnalysisMode::Gammatone => self.gammatone.smoothed_magnitudes(),
-        }
-    }
-
-    /// Get magnitude for a specific band
-    pub fn magnitude(&self, band: usize) -> f32 {
-        self.gammatone.smoothed_magnitude(band)
-    }
-
-    /// Get center frequency for a band (Hz)
+    /// Get the center frequency for a band in Hz
+    #[must_use]
     pub fn center_hz(&self, band: usize) -> f32 {
         self.gammatone.center_hz(band)
     }
 
-    /// Get all band info
-    pub fn band_info(&self) -> &[BandInfo] {
-        self.gammatone.band_info()
-    }
-
-    /// Copy magnitudes to output buffer
-    pub fn get_magnitudes(&self, output: &mut [f32]) {
-        let mags = self.gammatone.smoothed_magnitudes();
-        let len = output.len().min(mags.len());
-        output[..len].copy_from_slice(&mags[..len]);
-    }
-
-    /// Get magnitudes in dB
-    pub fn get_magnitudes_db(&self, output: &mut [f32]) {
-        self.gammatone.magnitudes_db(output, -100.0);
-    }
-
-    /// Get magnitude for a band in dB
-    pub fn magnitude_db(&self, band: usize) -> f32 {
-        self.gammatone.magnitude_db(band, -100.0)
+    /// Get information about all frequency bands
+    #[must_use]
+    pub fn bands(&self) -> &[BandInfo] {
+        self.gammatone.bands()
     }
 }
 
@@ -215,46 +243,41 @@ mod tests {
     use std::f32::consts::PI;
 
     #[test]
-    fn test_analyser_default() {
-        let analyser = Analyser::new();
+    fn test_builder_default() {
+        let analyser = Analyser::builder().build();
         assert_eq!(analyser.num_bands(), 40);
         assert_eq!(analyser.sample_rate(), 48000.0);
     }
 
     #[test]
-    fn test_analyser_custom_config() {
-        let config = AnalyserConfig {
-            num_bands: 24,
-            sample_rate: 44100.0,
-            scale: Scale::Bark,
-            ..Default::default()
-        };
-        let analyser = Analyser::with_config(config);
+    fn test_builder_custom() {
+        let analyser = Analyser::builder()
+            .bands(24)
+            .sample_rate(44100.0)
+            .scale(Scale::Bark)
+            .build();
+
         assert_eq!(analyser.num_bands(), 24);
         assert_eq!(analyser.sample_rate(), 44100.0);
     }
 
     #[test]
-    fn test_analyser_process_block() {
+    fn test_process_returns_envelope() {
         let mut analyser = Analyser::new();
 
         // Generate 100ms of 1kHz sine wave
-        let num_samples = 4800;
-        let signal: Vec<f32> = (0..num_samples)
+        let signal: Vec<f32> = (0..4800)
             .map(|i| {
                 let t = i as f32 / 48000.0;
                 (2.0 * PI * 1000.0 * t).sin()
             })
             .collect();
 
-        analyser.process_block(&signal);
-
-        // Check we get valid magnitudes
-        let mags = analyser.magnitudes();
-        assert_eq!(mags.len(), 40);
+        let envelope = analyser.process(&signal);
+        assert_eq!(envelope.len(), 40);
 
         // Find peak
-        let (peak_band, _) = mags
+        let (peak_band, _) = envelope
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
@@ -269,21 +292,29 @@ mod tests {
     }
 
     #[test]
-    fn test_analyser_stereo() {
+    fn test_process_stereo() {
         let mut analyser = Analyser::new();
 
-        let num_samples = 480;
-        let left: Vec<f32> = (0..num_samples)
+        let signal: Vec<f32> = (0..480)
             .map(|i| {
                 let t = i as f32 / 48000.0;
                 (2.0 * PI * 440.0 * t).sin()
             })
             .collect();
-        let right = left.clone();
 
-        analyser.process_block_stereo(&left, &right);
+        let envelope = analyser.process_stereo(&signal, &signal);
+        assert_eq!(envelope.len(), 40);
+    }
 
-        // Should have processed without panicking
-        assert_eq!(analyser.magnitudes().len(), 40);
+    #[test]
+    fn test_envelope_db() {
+        let mut analyser = Analyser::new();
+        let signal: Vec<f32> = (0..480)
+            .map(|i| (2.0 * PI * 1000.0 * i as f32 / 48000.0).sin())
+            .collect();
+
+        let _ = analyser.process(&signal);
+        let db = analyser.envelope_db();
+        assert_eq!(db.len(), 40);
     }
 }
