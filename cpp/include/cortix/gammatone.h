@@ -31,17 +31,14 @@ public:
 
     void configure(float centerHz, float bandwidthHz, float sampleRate) {
         centerHz_ = centerHz;
-        sampleRate_ = sampleRate;
 
         // Angular frequency
         const float omega = 2.0f * M_PI * centerHz / sampleRate;
 
         // Bandwidth coefficient (controls decay rate)
-        // ERB-based bandwidth scaled for 4th-order filter
         const float bw = 2.0f * M_PI * bandwidthHz / sampleRate;
 
         // Pole radius and angle for complex resonator
-        // For 4th order gammatone, we cascade 4 identical 1st-order sections
         r_ = std::exp(-bw);
         cosOmega_ = std::cos(omega);
         sinOmega_ = std::sin(omega);
@@ -57,26 +54,17 @@ public:
             stateReal_[i] = 0.0f;
             stateImag_[i] = 0.0f;
         }
-        envelope_ = 0.0f;
     }
 
-    /// Process a single sample, returns instantaneous envelope
-    float process(float input) {
-        // Apply input gain
+    /// Process a single sample, returns instantaneous magnitude
+    float tick(float input) {
         float real = input * gain_;
         float imag = 0.0f;
 
         // Cascade of 4 complex resonators
         for (int i = 0; i < 4; i++) {
-            // Complex multiply by pole: z * e^(j*omega) * r
-            float newReal = r_ * (real * cosOmega_ - imag * sinOmega_) + stateReal_[i] * r_ * cosOmega_ - stateImag_[i] * r_ * sinOmega_;
-            float newImag = r_ * (real * sinOmega_ + imag * cosOmega_) + stateReal_[i] * r_ * sinOmega_ + stateImag_[i] * r_ * cosOmega_;
-
-            // Actually, simpler formulation:
-            // output = input + pole * state
-            // For complex pole p = r * e^(j*omega):
-            newReal = real + r_ * (cosOmega_ * stateReal_[i] - sinOmega_ * stateImag_[i]);
-            newImag = imag + r_ * (sinOmega_ * stateReal_[i] + cosOmega_ * stateImag_[i]);
+            float newReal = real + r_ * (cosOmega_ * stateReal_[i] - sinOmega_ * stateImag_[i]);
+            float newImag = imag + r_ * (sinOmega_ * stateReal_[i] + cosOmega_ * stateImag_[i]);
 
             stateReal_[i] = newReal;
             stateImag_[i] = newImag;
@@ -85,33 +73,20 @@ public:
             imag = newImag;
         }
 
-        // Envelope = magnitude of complex output
-        float mag = std::sqrt(real * real + imag * imag);
-        return mag;
+        return std::sqrt(real * real + imag * imag);
     }
 
-    /// Process a block of samples
-    void processBlock(const float* input, float* output, int numSamples) {
-        for (int i = 0; i < numSamples; i++) {
-            output[i] = process(input[i]);
-        }
-    }
-
-    float getCenterHz() const { return centerHz_; }
+    float centerHz() const { return centerHz_; }
 
 private:
     float centerHz_ = 1000.0f;
-    float sampleRate_ = 48000.0f;
-    float r_ = 0.0f;           // Pole radius
-    float cosOmega_ = 0.0f;    // cos(center frequency)
-    float sinOmega_ = 0.0f;    // sin(center frequency)
-    float gain_ = 1.0f;        // Input normalization
+    float r_ = 0.0f;
+    float cosOmega_ = 0.0f;
+    float sinOmega_ = 0.0f;
+    float gain_ = 1.0f;
 
-    // State for 4 cascaded complex resonators
     float stateReal_[4] = {0};
     float stateImag_[4] = {0};
-
-    float envelope_ = 0.0f;
 };
 
 //=============================================================================
@@ -126,8 +101,8 @@ public:
         float minHz = 20.0f;
         float maxHz = 20000.0f;
         float sampleRate = 48000.0f;
-        Scale spacing = Scale::ERB;     // ERB spacing is standard for gammatone
-        float smoothingMs = 5.0f;       // Envelope smoothing time constant
+        Scale scale = Scale::ERB;
+        float smoothingMs = 5.0f;
     };
 
     GammatoneFilterbank() = default;
@@ -140,12 +115,11 @@ public:
         config_ = config;
 
         // Generate band frequencies according to scale
-        bands_ = generateBands(config.spacing, config.numBands, config.minHz, config.maxHz);
+        bands_ = generateBands(config.scale, config.numBands, config.minHz, config.maxHz);
 
         // Create filters
         filters_.resize(config.numBands);
         for (int i = 0; i < config.numBands; i++) {
-            // Use ERB bandwidth for each filter (standard for gammatone)
             float bw = erbBandwidth(bands_[i].centerHz);
             filters_[i].configure(bands_[i].centerHz, bw, config.sampleRate);
         }
@@ -160,7 +134,7 @@ public:
 
         // Allocate output buffers
         magnitudes_.resize(config.numBands, 0.0f);
-        smoothedMagnitudes_.resize(config.numBands, 0.0f);
+        envelope_.resize(config.numBands, 0.0f);
     }
 
     void reset() {
@@ -168,60 +142,58 @@ public:
             f.reset();
         }
         std::fill(magnitudes_.begin(), magnitudes_.end(), 0.0f);
-        std::fill(smoothedMagnitudes_.begin(), smoothedMagnitudes_.end(), 0.0f);
-    }
-
-    /// Process a single sample through all filters
-    void process(float input) {
-        for (size_t i = 0; i < filters_.size(); i++) {
-            float mag = filters_[i].process(input);
-            magnitudes_[i] = mag;
-
-            // Exponential smoothing
-            if (smoothCoeff_ > 0) {
-                smoothedMagnitudes_[i] = smoothCoeff_ * smoothedMagnitudes_[i] +
-                                         (1.0f - smoothCoeff_) * mag;
-            } else {
-                smoothedMagnitudes_[i] = mag;
-            }
-        }
+        std::fill(envelope_.begin(), envelope_.end(), 0.0f);
     }
 
     /// Process a block of samples
-    void processBlock(const float* input, int numSamples) {
+    void process(const float* input, int numSamples) {
         for (int i = 0; i < numSamples; i++) {
-            process(input[i]);
+            tick(input[i]);
         }
     }
 
-    // Accessors
-    int getNumBands() const { return config_.numBands; }
-    const std::vector<float>& getMagnitudes() const { return magnitudes_; }
-    const std::vector<float>& getSmoothedMagnitudes() const { return smoothedMagnitudes_; }
-    const std::vector<BandInfo>& getBandInfo() const { return bands_; }
+    /// Get the number of bands
+    int numBands() const { return config_.numBands; }
 
-    float getMagnitude(int band) const { return magnitudes_[band]; }
-    float getSmoothedMagnitude(int band) const { return smoothedMagnitudes_[band]; }
-    float getCenterHz(int band) const { return bands_[band].centerHz; }
+    /// Get the smoothed envelope (magnitude per band)
+    const std::vector<float>& envelope() const { return envelope_; }
 
-    /// Get magnitudes as dB values
-    void getMagnitudesDb(float* output, float minDb = -100.0f) const {
-        for (size_t i = 0; i < smoothedMagnitudes_.size(); i++) {
-            float mag = smoothedMagnitudes_[i];
-            if (mag > 0) {
-                output[i] = 20.0f * std::log10(mag);
-            } else {
-                output[i] = minDb;
-            }
+    /// Get raw (unsmoothed) magnitudes
+    const std::vector<float>& magnitudes() const { return magnitudes_; }
+
+    /// Get band information
+    const std::vector<BandInfo>& bands() const { return bands_; }
+
+    /// Get center frequency for a band in Hz
+    float centerHz(int band) const { return bands_[band].centerHz; }
+
+    /// Get the envelope in decibels
+    void envelopeDb(float* output, float minDb = -100.0f) const {
+        for (size_t i = 0; i < envelope_.size(); i++) {
+            float mag = envelope_[i];
+            output[i] = (mag > 0) ? 20.0f * std::log10(mag) : minDb;
         }
     }
 
 private:
+    void tick(float input) {
+        for (size_t i = 0; i < filters_.size(); i++) {
+            float mag = filters_[i].tick(input);
+            magnitudes_[i] = mag;
+
+            if (smoothCoeff_ > 0) {
+                envelope_[i] = smoothCoeff_ * envelope_[i] + (1.0f - smoothCoeff_) * mag;
+            } else {
+                envelope_[i] = mag;
+            }
+        }
+    }
+
     Config config_;
     std::vector<BandInfo> bands_;
     std::vector<GammatoneFilter> filters_;
     std::vector<float> magnitudes_;
-    std::vector<float> smoothedMagnitudes_;
+    std::vector<float> envelope_;
     float smoothCoeff_ = 0.0f;
 };
 

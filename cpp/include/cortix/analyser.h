@@ -3,8 +3,6 @@
  *
  * Unified interface for multiple analysis methods:
  * - Gammatone filterbank (auditory model)
- * - Bark-spaced analysis
- * - Multi-resolution FFT
  *
  * Designed for real-time audio visualization with perceptual accuracy.
  */
@@ -15,8 +13,6 @@
 #include "gammatone.h"
 #include <vector>
 #include <cmath>
-#include <memory>
-#include <cstring>
 
 namespace cortix {
 
@@ -67,12 +63,11 @@ public:
                 gtConfig.minHz = config.minHz;
                 gtConfig.maxHz = config.maxHz;
                 gtConfig.sampleRate = config.sampleRate;
-                gtConfig.spacing = config.scale;
+                gtConfig.scale = config.scale;
                 gtConfig.smoothingMs = config.smoothingMs;
                 gammatone_.configure(gtConfig);
                 break;
             }
-            // Future modes here
         }
     }
 
@@ -80,71 +75,49 @@ public:
         gammatone_.reset();
     }
 
-    /// Process a single sample
-    void process(float input) {
-        switch (config_.mode) {
-            case AnalysisMode::Gammatone:
-                gammatone_.process(input);
-                break;
-        }
-    }
-
     /// Process a block of samples (mono)
-    void processBlock(const float* input, int numSamples) {
+    const std::vector<float>& process(const float* input, int numSamples) {
         switch (config_.mode) {
             case AnalysisMode::Gammatone:
-                gammatone_.processBlock(input, numSamples);
+                gammatone_.process(input, numSamples);
                 break;
         }
+        return envelope();
     }
 
     /// Process a stereo block (averages L+R)
-    void processBlockStereo(const float* inputL, const float* inputR, int numSamples) {
-        // Mix to mono for analysis
+    const std::vector<float>& processStereo(const float* inputL, const float* inputR, int numSamples) {
         monoBuffer_.resize(numSamples);
         for (int i = 0; i < numSamples; i++) {
             monoBuffer_[i] = (inputL[i] + inputR[i]) * 0.5f;
         }
-        processBlock(monoBuffer_.data(), numSamples);
+        return process(monoBuffer_.data(), numSamples);
     }
 
-    // Accessors
-    int getNumBands() const { return config_.numBands; }
-    float getSampleRate() const { return config_.sampleRate; }
+    /// Get the number of bands
+    int numBands() const { return config_.numBands; }
 
-    /// Get raw magnitudes (linear scale)
-    const float* getMagnitudes() const {
-        switch (config_.mode) {
-            case AnalysisMode::Gammatone:
-                return gammatone_.getSmoothedMagnitudes().data();
-        }
-        return nullptr;
+    /// Get the sample rate
+    float sampleRate() const { return config_.sampleRate; }
+
+    /// Get the smoothed envelope (magnitude per band)
+    const std::vector<float>& envelope() const {
+        return gammatone_.envelope();
     }
 
-    /// Get magnitude for a specific band
-    float getMagnitude(int band) const {
-        return gammatone_.getSmoothedMagnitude(band);
+    /// Get the envelope in decibels
+    void envelopeDb(float* output, float minDb = -100.0f) const {
+        gammatone_.envelopeDb(output, minDb);
     }
 
     /// Get center frequency for a band (Hz)
-    float getCenterHz(int band) const {
-        return gammatone_.getCenterHz(band);
+    float centerHz(int band) const {
+        return gammatone_.centerHz(band);
     }
 
     /// Get all band info
-    const std::vector<BandInfo>& getBandInfo() const {
-        return gammatone_.getBandInfo();
-    }
-
-    /// Copy magnitudes to output buffer
-    void getMagnitudes(float* output) const {
-        const auto& mags = gammatone_.getSmoothedMagnitudes();
-        std::memcpy(output, mags.data(), mags.size() * sizeof(float));
-    }
-
-    /// Get magnitudes in dB
-    void getMagnitudesDb(float* output, float minDb = -100.0f) const {
-        gammatone_.getMagnitudesDb(output, minDb);
+    const std::vector<BandInfo>& bands() const {
+        return gammatone_.bands();
     }
 
 private:
