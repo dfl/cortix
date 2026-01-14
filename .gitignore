@@ -3,6 +3,10 @@ build/
 build-wasm/
 cmake-build-*/
 
+# Rust
+rust/target/
+Cargo.lock
+
 # IDE
 .idea/
 .vscode/

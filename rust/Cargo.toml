@@ -1,0 +1,21 @@
+[package]
+name = "cortix"
+version = "0.1.0"
+edition = "2021"
+authors = ["Cortix Contributors"]
+description = "Perceptual audio spectrum analyser with Gammatone filterbanks"
+license = "MIT"
+repository = "https://github.com/cortix/cortix-rs"
+keywords = ["audio", "dsp", "spectrum", "gammatone", "filterbank"]
+categories = ["multimedia::audio", "science"]
+
+[dependencies]
+
+[dev-dependencies]
+
+[features]
+default = []
+
+[lib]
+name = "cortix"
+path = "src/lib.rs"
