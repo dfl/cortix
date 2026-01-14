@@ -1,0 +1,29 @@
+# Build directories
+build/
+build-wasm/
+cmake-build-*/
+
+# IDE
+.idea/
+.vscode/
+*.xcodeproj/
+*.xcworkspace/
+
+# Compiled
+*.o
+*.a
+*.so
+*.dylib
+
+# Emscripten
+*.wasm
+*.js
+!build-wasm.sh
+
+# Distribution (generated, except type declarations)
+dist/*.js
+dist/*.wasm
+
+# OS
+.DS_Store
+Thumbs.db
