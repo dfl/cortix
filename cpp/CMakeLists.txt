@@ -34,6 +34,8 @@ if(EMSCRIPTEN OR CORTIX_BUILD_WASM)
         -sEXPORT_NAME=createCortixModule
         -sALLOW_MEMORY_GROWTH=1
         -sINITIAL_MEMORY=16777216
+        "-sEXPORTED_FUNCTIONS=['_malloc','_free']"
+        "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPF32']"
         --bind
         -O3
     )
