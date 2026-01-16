@@ -102,15 +102,14 @@ function loop() {
 
     // Beat detection
     beatDetector.update(normalizedData);
-    const energy = beatDetector.smoothedEnergy;
 
     // Clear
     gl.clearColor(0.02, 0.02, 0.05, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    // Update and draw copper bars
-    copperBars.update(deltaTime, energy);
-    copperBars.draw(normalizedData);
+    // Update and draw copper bars with Gammatone-style band reactivity
+    copperBars.update(deltaTime, normalizedData);
+    copperBars.draw();
 }
 
 // Audio loading

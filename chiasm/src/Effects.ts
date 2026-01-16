@@ -1500,7 +1500,13 @@ export class Starfield {
     public spread: number = 2.0;
     public depth: number = 10.0;
     public starColor: [number, number, number] = [1.0, 1.0, 1.0];
-    public trailLength: number = 0.0; // 0-1, controlled by bass
+    public trailLength: number = 0.0;
+
+    // Smoothed band values
+    private bass: number = 0;
+    private mids: number = 0;
+    private highs: number = 0;
+    private hue: number = 0;
 
     constructor(gl: WebGL2RenderingContext, starCount: number = 1000) {
         this.gl = gl;
@@ -1633,9 +1639,54 @@ export class Starfield {
         return { vao, positionBuffer, sizeBuffer };
     }
 
-    update(deltaTime: number, bassEnergy: number = 0): void {
-        const speedMultiplier = this.speed * (1.0 + bassEnergy * 3.0);
-        this.trailLength = Math.min(bassEnergy * 2.0, 1.0);
+    /**
+     * Update starfield with Gammatone ERB frequency band data
+     * @param deltaTime Frame delta time in seconds
+     * @param bands Frequency band data from Gammatone ERB analysis, normalized 0-1
+     */
+    update(deltaTime: number, bands?: Float32Array): void {
+        // Extract bass/mids/highs from band data
+        if (bands && bands.length > 0) {
+            const step = bands.length / 16;
+            let bass = 0, mids = 0, highs = 0;
+            for (let i = 0; i < 4; i++) bass += bands[Math.floor(i * step)] || 0;
+            for (let i = 4; i < 10; i++) mids += bands[Math.floor(i * step)] || 0;
+            for (let i = 10; i < 16; i++) highs += bands[Math.floor(i * step)] || 0;
+            bass /= 4; mids /= 6; highs /= 6;
+
+            // Smooth values (fast attack, slow release)
+            this.bass += ((bass > this.bass ? 0.7 : 0.1) * (bass - this.bass));
+            this.mids += ((mids > this.mids ? 0.7 : 0.1) * (mids - this.mids));
+            this.highs += ((highs > this.highs ? 0.7 : 0.1) * (highs - this.highs));
+        }
+
+        // Bass drives speed (warp effect)
+        const speedMultiplier = this.speed * (1.0 + this.bass * 4.0);
+
+        // Bass creates trails
+        this.trailLength = Math.min(this.bass * 2.5, 1.0);
+
+        // Mids shift hue over time
+        this.hue += deltaTime * (0.1 + this.mids * 0.5);
+
+        // Update star color based on mids/highs (HSV to RGB)
+        const h = this.hue % 1;
+        const s = 0.5 + this.highs * 0.5;
+        const v = 0.8 + this.bass * 0.2;
+        // Simple HSV to RGB
+        const i = Math.floor(h * 6);
+        const f = h * 6 - i;
+        const p = v * (1 - s);
+        const q = v * (1 - f * s);
+        const t = v * (1 - (1 - f) * s);
+        switch (i % 6) {
+            case 0: this.starColor = [v, t, p]; break;
+            case 1: this.starColor = [q, v, p]; break;
+            case 2: this.starColor = [p, v, t]; break;
+            case 3: this.starColor = [p, q, v]; break;
+            case 4: this.starColor = [t, p, v]; break;
+            case 5: this.starColor = [v, p, q]; break;
+        }
 
         for (let i = 0; i < this.stars.length; i++) {
             const star = this.stars[i];
@@ -1651,11 +1702,14 @@ export class Starfield {
                 star.size = 1 + Math.random() * 2;
             }
 
+            // Highs make stars twinkle (size variation)
+            const twinkle = 1.0 + this.highs * 0.5 * Math.sin(i * 0.1 + this.hue * 20);
+
             // Update buffer data
             this.positions[i * 3] = star.x;
             this.positions[i * 3 + 1] = star.y;
             this.positions[i * 3 + 2] = star.z;
-            this.sizes[i] = star.size;
+            this.sizes[i] = star.size * twinkle;
         }
     }
 
@@ -1703,6 +1757,12 @@ export class CopperBars {
     public waveFrequency: number = 2.0;
     public baseHue: number = 0.0;
     public saturation: number = 0.8;
+
+    // Smoothed band values
+    private bass: number = 0;
+    private mids: number = 0;
+    private highs: number = 0;
+    private smoothedBands: Float32Array = new Float32Array(32);
 
     constructor(gl: WebGL2RenderingContext) {
         this.gl = gl;
@@ -1834,32 +1894,69 @@ export class CopperBars {
         return vao;
     }
 
-    update(deltaTime: number, energy: number = 0): void {
-        // Speed up based on energy
-        this.time += deltaTime * (1.0 + energy * 2.0);
-        // Shift hue based on energy
-        this.baseHue += deltaTime * energy * 0.3;
+    /**
+     * Update copper bars with Gammatone ERB frequency band data
+     * @param deltaTime Frame delta time in seconds
+     * @param bands Frequency band data from Gammatone ERB analysis, normalized 0-1
+     */
+    update(deltaTime: number, bands?: Float32Array): void {
+        if (bands && bands.length > 0) {
+            // Resample to bar count with smoothing
+            const step = bands.length / this.barCount;
+            for (let i = 0; i < this.barCount && i < 32; i++) {
+                const idx = Math.floor(i * step);
+                const target = bands[idx] || 0;
+                // Fast attack, slower release for punchy response
+                if (target > this.smoothedBands[i]) {
+                    this.smoothedBands[i] += (target - this.smoothedBands[i]) * 0.8;
+                } else {
+                    this.smoothedBands[i] += (target - this.smoothedBands[i]) * 0.15;
+                }
+            }
+
+            // Calculate bass/mids/highs
+            const bandStep = bands.length / 16;
+            let bass = 0, mids = 0, highs = 0;
+            for (let i = 0; i < 4; i++) bass += bands[Math.floor(i * bandStep)] || 0;
+            for (let i = 4; i < 10; i++) mids += bands[Math.floor(i * bandStep)] || 0;
+            for (let i = 10; i < 16; i++) highs += bands[Math.floor(i * bandStep)] || 0;
+            bass /= 4; mids /= 6; highs /= 6;
+
+            this.bass += ((bass > this.bass ? 0.7 : 0.1) * (bass - this.bass));
+            this.mids += ((mids > this.mids ? 0.7 : 0.1) * (mids - this.mids));
+            this.highs += ((highs > this.highs ? 0.7 : 0.1) * (highs - this.highs));
+        }
+
+        // Bass drives wave speed
+        this.time += deltaTime * (1.0 + this.bass * 3.0);
+
+        // Mids shift hue
+        this.baseHue += deltaTime * (0.05 + this.mids * 0.4);
     }
 
-    draw(frequencyData: Float32Array): void {
+    draw(): void {
         const gl = this.gl;
+
+        // Dynamic wave amplitude based on bass
+        const dynamicAmplitude = this.waveAmplitude * (1.0 + this.bass * 1.5);
+
+        // Dynamic wave frequency based on highs
+        const dynamicFreq = this.waveFrequency * (1.0 + this.highs * 0.5);
+
+        // Dynamic saturation based on mids
+        const dynamicSat = Math.min(1.0, this.saturation + this.mids * 0.2);
 
         gl.useProgram(this.program);
         gl.uniform1f(gl.getUniformLocation(this.program, 'uTime'), this.time);
         gl.uniform1i(gl.getUniformLocation(this.program, 'uBarCount'), this.barCount);
         gl.uniform1f(gl.getUniformLocation(this.program, 'uBarHeight'), this.barHeight);
-        gl.uniform1f(gl.getUniformLocation(this.program, 'uWaveAmplitude'), this.waveAmplitude);
-        gl.uniform1f(gl.getUniformLocation(this.program, 'uWaveFrequency'), this.waveFrequency);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uWaveAmplitude'), dynamicAmplitude);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uWaveFrequency'), dynamicFreq);
         gl.uniform1f(gl.getUniformLocation(this.program, 'uBaseHue'), this.baseHue);
-        gl.uniform1f(gl.getUniformLocation(this.program, 'uSaturation'), this.saturation);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uSaturation'), dynamicSat);
 
-        // Sample frequency bands for the bars
-        const bands = new Float32Array(32);
-        const step = Math.floor(frequencyData.length / this.barCount);
-        for (let i = 0; i < this.barCount && i < 32; i++) {
-            bands[i] = frequencyData[i * step] || 0;
-        }
-        gl.uniform1fv(gl.getUniformLocation(this.program, 'uBands'), bands);
+        // Pass smoothed frequency bands
+        gl.uniform1fv(gl.getUniformLocation(this.program, 'uBands'), this.smoothedBands);
 
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -2034,6 +2131,12 @@ export class Tunnel {
     public ringCount: number = 20.0;
     public twist: number = 0.3;
 
+    // Smoothed band values
+    private bass: number = 0;
+    private mids: number = 0;
+    private highs: number = 0;
+    private energy: number = 0;
+
     constructor(gl: WebGL2RenderingContext) {
         this.gl = gl;
         this.program = this.initShaders();
@@ -2161,24 +2264,56 @@ export class Tunnel {
         return vao;
     }
 
-    update(deltaTime: number, energy: number = 0): void {
-        const speedBoost = 1.0 + energy * 3.0;
+    /**
+     * Update tunnel with Gammatone ERB frequency band data
+     * @param deltaTime Frame delta time in seconds
+     * @param bands Frequency band data from Gammatone ERB analysis, normalized 0-1
+     */
+    update(deltaTime: number, bands?: Float32Array): void {
+        // Extract bass/mids/highs from band data
+        if (bands && bands.length > 0) {
+            const step = bands.length / 16;
+            let bass = 0, mids = 0, highs = 0;
+            for (let i = 0; i < 4; i++) bass += bands[Math.floor(i * step)] || 0;
+            for (let i = 4; i < 10; i++) mids += bands[Math.floor(i * step)] || 0;
+            for (let i = 10; i < 16; i++) highs += bands[Math.floor(i * step)] || 0;
+            bass /= 4; mids /= 6; highs /= 6;
+
+            // Smooth values
+            this.bass += ((bass > this.bass ? 0.7 : 0.1) * (bass - this.bass));
+            this.mids += ((mids > this.mids ? 0.7 : 0.1) * (mids - this.mids));
+            this.highs += ((highs > this.highs ? 0.7 : 0.1) * (highs - this.highs));
+            this.energy = (this.bass + this.mids + this.highs) / 3;
+        }
+
+        // Bass drives forward speed
+        const speedBoost = 1.0 + this.bass * 4.0;
         this.time += deltaTime * this.speed * speedBoost;
-        this.rotation += deltaTime * 0.2 * (1.0 + energy);
-        this.colorShift += deltaTime * 0.1;
+
+        // Mids drive rotation
+        this.rotation += deltaTime * (0.2 + this.mids * 1.5);
+
+        // Highs shift colors
+        this.colorShift += deltaTime * (0.1 + this.highs * 0.8);
     }
 
-    draw(aspect: number, energy: number = 0): void {
+    draw(aspect: number): void {
         const gl = this.gl;
+
+        // Dynamic twist based on mids
+        const dynamicTwist = this.twist * (1.0 + this.mids * 2.0);
+
+        // Dynamic ring count based on highs
+        const dynamicRings = this.ringCount * (1.0 + this.highs * 0.5);
 
         gl.useProgram(this.program);
         gl.uniform1f(gl.getUniformLocation(this.program, 'uTime'), this.time);
         gl.uniform1f(gl.getUniformLocation(this.program, 'uSpeed'), this.speed);
         gl.uniform1f(gl.getUniformLocation(this.program, 'uRotation'), this.rotation);
         gl.uniform1f(gl.getUniformLocation(this.program, 'uColorShift'), this.colorShift);
-        gl.uniform1f(gl.getUniformLocation(this.program, 'uRingCount'), this.ringCount);
-        gl.uniform1f(gl.getUniformLocation(this.program, 'uTwist'), this.twist);
-        gl.uniform1f(gl.getUniformLocation(this.program, 'uEnergy'), energy);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uRingCount'), dynamicRings);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uTwist'), dynamicTwist);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uEnergy'), this.bass); // Bass for center glow
         gl.uniform1f(gl.getUniformLocation(this.program, 'uAspect'), aspect);
 
         gl.depthMask(false);

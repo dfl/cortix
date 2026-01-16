@@ -97,9 +97,8 @@ function loop() {
         normalizedData[i] = Math.max(0, (frequencyData[i] + 100) / 100);
     }
 
-    // Beat detection (bass energy)
+    // Beat detection
     beatDetector.update(normalizedData);
-    const energy = beatDetector.smoothedEnergy;
 
     // Clear
     gl.clearColor(0, 0, 0, 1);
@@ -108,19 +107,13 @@ function loop() {
     const aspect = canvas.width / canvas.height;
 
     if (currentEffect === 'starfield') {
-        // Update starfield color based on beat
-        if (beatDetector.beatDetected) {
-            starfield.starColor = [
-                0.5 + Math.random() * 0.5,
-                0.5 + Math.random() * 0.5,
-                0.5 + Math.random() * 0.5
-            ];
-        }
-        starfield.update(deltaTime, energy);
+        // Starfield with Gammatone-style band reactivity
+        starfield.update(deltaTime, normalizedData);
         starfield.draw(aspect);
     } else {
-        tunnel.update(deltaTime, energy);
-        tunnel.draw(aspect, energy);
+        // Tunnel with Gammatone-style band reactivity
+        tunnel.update(deltaTime, normalizedData);
+        tunnel.draw(aspect);
     }
 }
 

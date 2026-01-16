@@ -330,8 +330,12 @@ function loop() {
 
     // === MAIN RENDERING ===
 
+    // Check if this is a bloomable mode (3D or Tier 2 demoscene effects)
+    const bloomableModes = ['viz3d', 'plasma', 'starfield', 'tunnel', 'copper'];
+    const isBloomable = bloomableModes.some(m => currentMode.startsWith(m));
+
     // Begin bloom pass if enabled
-    if (effectsConfig.bloom && bloomEffect && currentMode.startsWith('viz3d')) {
+    if (effectsConfig.bloom && bloomEffect && isBloomable) {
         bloomEffect.beginScene();
     }
 
@@ -422,32 +426,53 @@ function loop() {
         plasma?.update(deltaTime, vizDataL);
         plasma?.draw();
     } else if (currentMode === 'starfield') {
-        // Starfield - bass reactive speed
-        const energy = beatDetector?.smoothedEnergy || 0;
+        // Starfield - Gammatone ERB reactive
         const aspect = canvas.width / canvas.height;
-
-        // Change star color on beat
-        if (beatDetector?.beatDetected && starfield) {
-            starfield.starColor = [
-                0.5 + Math.random() * 0.5,
-                0.5 + Math.random() * 0.5,
-                0.5 + Math.random() * 0.5
-            ];
-        }
-
-        starfield?.update(deltaTime, energy);
+        starfield?.update(deltaTime, vizDataL);
         starfield?.draw(aspect);
     } else if (currentMode === 'tunnel') {
-        // Tunnel - audio reactive speed and twist
-        const energy = beatDetector?.smoothedEnergy || 0;
+        // Tunnel - Gammatone ERB reactive
         const aspect = canvas.width / canvas.height;
-        tunnel?.update(deltaTime, energy);
-        tunnel?.draw(aspect, energy);
+        tunnel?.update(deltaTime, vizDataL);
+        tunnel?.draw(aspect);
     } else if (currentMode === 'copper') {
-        // Copper bars - frequency bands drive bar heights
-        const energy = beatDetector?.smoothedEnergy || 0;
-        copperBars?.update(deltaTime, energy);
-        copperBars?.draw(vizDataL);
+        // Copper bars - Gammatone ERB reactive
+        copperBars?.update(deltaTime, vizDataL);
+        copperBars?.draw();
+    }
+
+    // End bloom pass for Tier 2 effects and composite
+    if (effectsConfig.bloom && bloomEffect && isBloomable && !currentMode.startsWith('viz3d')) {
+        bloomEffect.endScene();
+    }
+
+    // Particles overlay for Tier 2 effects
+    if (effectsConfig.particles && particleSystem && isPlaying && isBloomable && !currentMode.startsWith('viz3d')) {
+        const palette = currentPalette || [
+            [1.0, 0.3, 0.5],
+            [0.3, 0.5, 1.0],
+            [0.3, 1.0, 0.5],
+            [1.0, 0.8, 0.3],
+            [1.0, 0.3, 0.3]
+        ];
+
+        // Emit particles based on audio
+        particleSystem.emit(vizDataL, palette, 0.6);
+
+        // Burst on beat
+        if (beatDetector?.beatDetected) {
+            const burstColor = palette[Math.floor(Math.random() * palette.length)];
+            particleSystem.burst(0, 0.3, 0, 30, burstColor);
+        }
+
+        particleSystem.update(deltaTime);
+
+        // Simple orthographic projection for 2D overlay
+        const vp = mat4.create();
+        const model = mat4.create();
+        mat4.ortho(vp, -1, 1, -1, 1, -1, 1);
+
+        particleSystem.draw(vp, model);
     }
     // Update Time Display
     if (audioCtx.state === 'running') {
