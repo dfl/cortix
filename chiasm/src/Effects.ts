@@ -1216,3 +1216,974 @@ export const defaultEffectsConfig: EffectsConfig = {
     colorCycling: true,
     particles: true
 };
+
+//=============================================================================
+// TIER 2 EFFECTS
+//=============================================================================
+
+//=============================================================================
+// Plasma Background - Gammatone ERB Reactive Demoscene Effect
+//=============================================================================
+
+export class PlasmaBackground {
+    private gl: WebGL2RenderingContext;
+    private program: WebGLProgram;
+    private vao: WebGLVertexArrayObject;
+    private time: number = 0;
+
+    // Audio-reactive parameters
+    public speed: number = 1.0;
+    public scale: number = 3.0;
+    public colorShift: number = 0.0;
+    public intensity: number = 1.0;
+
+    // Smoothed band values for interpolation
+    private smoothedBands: Float32Array = new Float32Array(16);
+    private bass: number = 0;
+    private mids: number = 0;
+    private highs: number = 0;
+    private energy: number = 0;
+
+    constructor(gl: WebGL2RenderingContext) {
+        this.gl = gl;
+        this.program = this.initShaders();
+        this.vao = this.initQuad();
+    }
+
+    private initShaders(): WebGLProgram {
+        const vs = `#version 300 es
+        layout(location = 0) in vec2 aPosition;
+        out vec2 vUv;
+        void main() {
+            vUv = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.999, 1.0);
+        }`;
+
+        // Gammatone ERB reactive plasma shader
+        const fs = `#version 300 es
+        precision highp float;
+
+        in vec2 vUv;
+        out vec4 fragColor;
+
+        uniform float uTime;
+        uniform float uScale;
+        uniform float uColorShift;
+        uniform float uIntensity;
+
+        // Gammatone frequency bands (16 bands from sub-bass to brilliance)
+        uniform float uBands[16];
+
+        // Derived values from bands
+        uniform float uBass;      // Sub-bass + bass energy
+        uniform float uMids;      // Mid frequencies
+        uniform float uHighs;     // High frequencies
+        uniform float uEnergy;    // Overall energy
+
+        // Gammatone-reactive plasma with per-band layers
+        float plasma(vec2 uv, float time) {
+            float v = 0.0;
+
+            // Layer 1: Bass-driven horizontal waves (pumping effect)
+            float bassScale = uScale * (1.0 + uBass * 2.0);
+            v += sin(uv.x * bassScale * 8.0 + time * (1.0 + uBass)) * (0.8 + uBass * 0.5);
+
+            // Layer 2: Mid-driven vertical waves
+            float midSpeed = 0.7 + uMids * 1.5;
+            v += sin((uv.y * uScale * 10.0 + time * midSpeed) * 0.7) * (0.7 + uMids * 0.4);
+
+            // Layer 3: High-frequency shimmer on diagonal
+            float highFreq = 10.0 + uHighs * 15.0;
+            v += sin((uv.x + uv.y) * highFreq + time * 2.0) * uHighs * 0.8;
+
+            // Layer 4: Bass-pulsing radial (breathing effect)
+            float cx = uv.x - 0.5 + 0.3 * sin(time * 0.3) * (1.0 + uBass);
+            float cy = uv.y - 0.5 + 0.3 * cos(time * 0.4) * (1.0 + uBass);
+            float radialScale = uScale * (1.0 + uBass * 0.5);
+            v += sin(sqrt(cx * cx + cy * cy + 0.01) * radialScale * 12.0 - time * 1.5);
+
+            // Layer 5: Per-band concentric rings (frequency-reactive ripples)
+            // Each ERB band creates its own ripple layer
+            float dist = length(uv - 0.5);
+            for (int i = 0; i < 8; i++) {
+                float bandVal = uBands[i * 2] + uBands[i * 2 + 1];
+                float ringFreq = 5.0 + float(i) * 3.0;
+                float ringPhase = time * (0.5 + float(i) * 0.2);
+                v += sin(dist * ringFreq - ringPhase) * bandVal * 0.4;
+            }
+
+            return v * 0.15;
+        }
+
+        vec3 hsv2rgb(vec3 c) {
+            vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+            vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+            return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+        }
+
+        void main() {
+            vec2 uv = vUv;
+
+            // Bass-reactive UV distortion (warping on bass hits)
+            float dist = length(uv - 0.5);
+            float distortAngle = atan(uv.y - 0.5, uv.x - 0.5);
+            float distortAmount = uBass * 0.08 * sin(dist * 15.0 - uTime * 3.0);
+            uv.x += cos(distortAngle) * distortAmount;
+            uv.y += sin(distortAngle) * distortAmount;
+
+            // Calculate plasma value
+            float v = plasma(uv, uTime);
+
+            // Hue: base from plasma + color shift + high frequency sparkle
+            float hue = fract(v * 0.5 + 0.5 + uColorShift + uHighs * 0.15 * sin(uTime * 5.0));
+
+            // Saturation: boosted by mids
+            float sat = 0.7 + 0.25 * sin(v * 3.14159) + uMids * 0.2;
+            sat = clamp(sat, 0.0, 1.0);
+
+            // Value: bass pulses brightness
+            float val = 0.3 + 0.25 * cos(v * 3.14159 * 2.0);
+            val += uBass * 0.5;  // Bass brightness boost
+            val += uEnergy * 0.2;  // Overall energy boost
+            val = clamp(val, 0.0, 1.0);
+
+            vec3 color = hsv2rgb(vec3(hue, sat, val));
+
+            // High-frequency white sparkle overlay
+            float sparkle = sin(uv.x * 50.0 + uTime * 10.0) * sin(uv.y * 50.0 - uTime * 8.0);
+            sparkle = max(0.0, sparkle) * uHighs * 0.6;
+            color += vec3(sparkle);
+
+            // Apply intensity
+            color *= uIntensity;
+
+            // Vignette
+            float vignette = 1.0 - dist * 0.5;
+            color *= vignette;
+
+            fragColor = vec4(color, 1.0);
+        }`;
+
+        return this.createProgram(vs, fs);
+    }
+
+    private createProgram(vs: string, fs: string): WebGLProgram {
+        const gl = this.gl;
+        const vShader = gl.createShader(gl.VERTEX_SHADER)!;
+        gl.shaderSource(vShader, vs);
+        gl.compileShader(vShader);
+
+        const fShader = gl.createShader(gl.FRAGMENT_SHADER)!;
+        gl.shaderSource(fShader, fs);
+        gl.compileShader(fShader);
+
+        const program = gl.createProgram()!;
+        gl.attachShader(program, vShader);
+        gl.attachShader(program, fShader);
+        gl.linkProgram(program);
+
+        return program;
+    }
+
+    private initQuad(): WebGLVertexArrayObject {
+        const gl = this.gl;
+        const vao = gl.createVertexArray()!;
+        gl.bindVertexArray(vao);
+
+        const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
+
+        gl.bindVertexArray(null);
+        return vao;
+    }
+
+    /**
+     * Update plasma with Gammatone ERB frequency band data
+     * @param deltaTime Frame delta time in seconds
+     * @param bands Frequency band data from Gammatone ERB analysis, normalized 0-1
+     */
+    update(deltaTime: number, bands?: Float32Array): void {
+        if (bands && bands.length > 0) {
+            // Resample input bands to 16 buckets with smoothing
+            const step = bands.length / 16;
+            for (let i = 0; i < 16; i++) {
+                const idx = Math.floor(i * step);
+                const target = bands[idx] || 0;
+                // Smooth with fast attack, slower release
+                if (target > this.smoothedBands[i]) {
+                    this.smoothedBands[i] += (target - this.smoothedBands[i]) * 0.7; // Fast attack
+                } else {
+                    this.smoothedBands[i] += (target - this.smoothedBands[i]) * 0.1; // Slow release
+                }
+            }
+
+            // Calculate band ranges (based on ERB distribution)
+            // Bands 0-3: Sub-bass to bass (~20-200Hz)
+            // Bands 4-9: Mids (~200-2000Hz)
+            // Bands 10-15: Highs (~2000-20000Hz)
+            this.bass = 0;
+            this.mids = 0;
+            this.highs = 0;
+            for (let i = 0; i < 4; i++) this.bass += this.smoothedBands[i];
+            for (let i = 4; i < 10; i++) this.mids += this.smoothedBands[i];
+            for (let i = 10; i < 16; i++) this.highs += this.smoothedBands[i];
+
+            this.bass /= 4;
+            this.mids /= 6;
+            this.highs /= 6;
+            this.energy = (this.bass + this.mids + this.highs) / 3;
+        }
+
+        // Speed up plasma based on energy and bass
+        const speedBoost = 1.0 + this.energy * 2.0 + this.bass * 1.5;
+        this.time += deltaTime * this.speed * speedBoost;
+
+        // Shift colors based on mids
+        this.colorShift += deltaTime * (0.1 + this.mids * 0.5);
+    }
+
+    /**
+     * Draw plasma with current band state
+     */
+    draw(): void {
+        const gl = this.gl;
+
+        gl.useProgram(this.program);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uTime'), this.time);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uScale'), this.scale);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uColorShift'), this.colorShift);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uIntensity'), this.intensity);
+
+        // Pass band data and derived values
+        gl.uniform1fv(gl.getUniformLocation(this.program, 'uBands'), this.smoothedBands);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uBass'), this.bass);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uMids'), this.mids);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uHighs'), this.highs);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uEnergy'), this.energy);
+
+        // Draw behind everything (depth = 0.999)
+        gl.depthMask(false);
+        gl.bindVertexArray(this.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.depthMask(true);
+    }
+}
+
+//=============================================================================
+// Starfield - Infinite Zoom Tunnel Effect
+//=============================================================================
+
+interface Star {
+    x: number;
+    y: number;
+    z: number;
+    size: number;
+}
+
+export class Starfield {
+    private gl: WebGL2RenderingContext;
+    private program: WebGLProgram;
+    private vao: WebGLVertexArrayObject;
+    private positionBuffer: WebGLBuffer;
+    private sizeBuffer: WebGLBuffer;
+
+    private stars: Star[] = [];
+    private positions: Float32Array;
+    private sizes: Float32Array;
+
+    public starCount: number = 1000;
+    public speed: number = 1.0;
+    public spread: number = 2.0;
+    public depth: number = 10.0;
+    public starColor: [number, number, number] = [1.0, 1.0, 1.0];
+    public trailLength: number = 0.0; // 0-1, controlled by bass
+
+    constructor(gl: WebGL2RenderingContext, starCount: number = 1000) {
+        this.gl = gl;
+        this.starCount = starCount;
+        this.positions = new Float32Array(starCount * 3);
+        this.sizes = new Float32Array(starCount);
+
+        this.initStars();
+        this.program = this.initShaders();
+        const buffers = this.initBuffers();
+        this.vao = buffers.vao;
+        this.positionBuffer = buffers.positionBuffer;
+        this.sizeBuffer = buffers.sizeBuffer;
+    }
+
+    private initStars(): void {
+        this.stars = [];
+        for (let i = 0; i < this.starCount; i++) {
+            this.stars.push({
+                x: (Math.random() - 0.5) * this.spread * 2,
+                y: (Math.random() - 0.5) * this.spread * 2,
+                z: Math.random() * this.depth,
+                size: 1 + Math.random() * 2
+            });
+        }
+    }
+
+    private initShaders(): WebGLProgram {
+        const vs = `#version 300 es
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in float aSize;
+
+        uniform float uAspect;
+        uniform float uTrailLength;
+
+        out float vAlpha;
+        out float vTrail;
+
+        void main() {
+            // Project from 3D to 2D with perspective
+            float z = max(aPosition.z, 0.1);
+            float scale = 1.0 / z;
+
+            vec2 screenPos = aPosition.xy * scale;
+            screenPos.x /= uAspect;
+
+            gl_Position = vec4(screenPos, 0.5, 1.0);
+
+            // Size based on distance (closer = bigger)
+            gl_PointSize = aSize * scale * 50.0;
+
+            // Alpha based on depth (far = dimmer)
+            vAlpha = 1.0 - (z / 10.0);
+            vAlpha = clamp(vAlpha * vAlpha, 0.0, 1.0);
+
+            // Trail effect
+            vTrail = uTrailLength;
+        }`;
+
+        const fs = `#version 300 es
+        precision highp float;
+
+        in float vAlpha;
+        in float vTrail;
+        out vec4 fragColor;
+
+        uniform vec3 uColor;
+
+        void main() {
+            vec2 coord = gl_PointCoord - vec2(0.5);
+            float dist = length(coord);
+
+            // Star shape with glow
+            float core = exp(-dist * 8.0);
+            float glow = exp(-dist * 3.0) * 0.3;
+            float brightness = core + glow;
+
+            // Streak/trail effect (elongate when moving fast)
+            if (vTrail > 0.0) {
+                // Elongate in Y direction (direction of travel)
+                float streak = exp(-abs(coord.x) * 20.0) * exp(-coord.y * 5.0);
+                brightness += streak * vTrail * 0.5;
+            }
+
+            float alpha = brightness * vAlpha;
+            if (alpha < 0.01) discard;
+
+            fragColor = vec4(uColor * brightness, alpha);
+        }`;
+
+        return this.createProgram(vs, fs);
+    }
+
+    private createProgram(vs: string, fs: string): WebGLProgram {
+        const gl = this.gl;
+        const vShader = gl.createShader(gl.VERTEX_SHADER)!;
+        gl.shaderSource(vShader, vs);
+        gl.compileShader(vShader);
+
+        const fShader = gl.createShader(gl.FRAGMENT_SHADER)!;
+        gl.shaderSource(fShader, fs);
+        gl.compileShader(fShader);
+
+        const program = gl.createProgram()!;
+        gl.attachShader(program, vShader);
+        gl.attachShader(program, fShader);
+        gl.linkProgram(program);
+
+        return program;
+    }
+
+    private initBuffers(): { vao: WebGLVertexArrayObject; positionBuffer: WebGLBuffer; sizeBuffer: WebGLBuffer } {
+        const gl = this.gl;
+        const vao = gl.createVertexArray()!;
+        gl.bindVertexArray(vao);
+
+        const positionBuffer = gl.createBuffer()!;
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, this.positions, gl.DYNAMIC_DRAW);
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
+
+        const sizeBuffer = gl.createBuffer()!;
+        gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, this.sizes, gl.DYNAMIC_DRAW);
+        gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(1);
+
+        gl.bindVertexArray(null);
+        return { vao, positionBuffer, sizeBuffer };
+    }
+
+    update(deltaTime: number, bassEnergy: number = 0): void {
+        const speedMultiplier = this.speed * (1.0 + bassEnergy * 3.0);
+        this.trailLength = Math.min(bassEnergy * 2.0, 1.0);
+
+        for (let i = 0; i < this.stars.length; i++) {
+            const star = this.stars[i];
+
+            // Move star toward camera
+            star.z -= deltaTime * speedMultiplier;
+
+            // Respawn at back when passing camera
+            if (star.z <= 0.1) {
+                star.z = this.depth;
+                star.x = (Math.random() - 0.5) * this.spread * 2;
+                star.y = (Math.random() - 0.5) * this.spread * 2;
+                star.size = 1 + Math.random() * 2;
+            }
+
+            // Update buffer data
+            this.positions[i * 3] = star.x;
+            this.positions[i * 3 + 1] = star.y;
+            this.positions[i * 3 + 2] = star.z;
+            this.sizes[i] = star.size;
+        }
+    }
+
+    draw(aspect: number): void {
+        const gl = this.gl;
+
+        // Update GPU buffers
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.positions);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.sizeBuffer);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.sizes);
+
+        // Draw
+        gl.useProgram(this.program);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uAspect'), aspect);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uTrailLength'), this.trailLength);
+        gl.uniform3fv(gl.getUniformLocation(this.program, 'uColor'), this.starColor);
+
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // Additive blending for glow
+        gl.depthMask(false);
+
+        gl.bindVertexArray(this.vao);
+        gl.drawArrays(gl.POINTS, 0, this.starCount);
+
+        gl.depthMask(true);
+        gl.disable(gl.BLEND);
+    }
+}
+
+//=============================================================================
+// Copper Bars - Amiga-style Horizontal Gradient Bands
+//=============================================================================
+
+export class CopperBars {
+    private gl: WebGL2RenderingContext;
+    private program: WebGLProgram;
+    private vao: WebGLVertexArrayObject;
+    private time: number = 0;
+
+    public barCount: number = 8;
+    public barHeight: number = 0.08;
+    public waveAmplitude: number = 0.3;
+    public waveFrequency: number = 2.0;
+    public baseHue: number = 0.0;
+    public saturation: number = 0.8;
+
+    constructor(gl: WebGL2RenderingContext) {
+        this.gl = gl;
+        this.program = this.initShaders();
+        this.vao = this.initQuad();
+    }
+
+    private initShaders(): WebGLProgram {
+        const vs = `#version 300 es
+        layout(location = 0) in vec2 aPosition;
+        out vec2 vUv;
+        void main() {
+            vUv = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.998, 1.0);
+        }`;
+
+        const fs = `#version 300 es
+        precision highp float;
+
+        in vec2 vUv;
+        out vec4 fragColor;
+
+        uniform float uTime;
+        uniform int uBarCount;
+        uniform float uBarHeight;
+        uniform float uWaveAmplitude;
+        uniform float uWaveFrequency;
+        uniform float uBaseHue;
+        uniform float uSaturation;
+        uniform float uBands[32]; // Frequency band magnitudes
+
+        vec3 hsv2rgb(vec3 c) {
+            vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+            vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+            return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+        }
+
+        void main() {
+            float y = vUv.y;
+            vec3 color = vec3(0.0);
+            float alpha = 0.0;
+
+            for (int i = 0; i < 32; i++) {
+                if (i >= uBarCount) break;
+
+                // Band magnitude affects bar size and brightness
+                float bandMag = uBands[i];
+
+                // Calculate bar center with sine wave motion
+                float barIndex = float(i) / float(uBarCount);
+                float baseY = barIndex;
+                float waveOffset = sin(uTime * uWaveFrequency + barIndex * 6.28) * uWaveAmplitude * 0.5;
+                waveOffset += sin(uTime * uWaveFrequency * 0.7 + barIndex * 4.0) * uWaveAmplitude * 0.3;
+
+                // Audio-reactive bounce
+                waveOffset += bandMag * 0.1;
+
+                float barCenter = baseY + waveOffset;
+
+                // Bar thickness scales with band magnitude
+                float thickness = uBarHeight * (0.5 + bandMag * 1.5);
+
+                // Distance from bar center
+                float dist = abs(y - barCenter);
+
+                // Smooth bar with gradient edges
+                float barMask = 1.0 - smoothstep(0.0, thickness, dist);
+
+                if (barMask > 0.0) {
+                    // Color based on bar index and time
+                    float hue = fract(uBaseHue + barIndex + uTime * 0.1);
+                    float sat = uSaturation;
+                    float val = 0.5 + bandMag * 0.5;
+
+                    // Horizontal gradient within bar
+                    float horizGrad = vUv.x;
+                    hue = fract(hue + horizGrad * 0.2);
+                    val *= 0.7 + horizGrad * 0.3;
+
+                    // Metallic highlight in center of bar
+                    float centerHighlight = exp(-pow(dist / thickness, 2.0) * 4.0);
+                    val += centerHighlight * 0.3;
+
+                    vec3 barColor = hsv2rgb(vec3(hue, sat, val));
+
+                    // Additive blend bars
+                    color = max(color, barColor * barMask);
+                    alpha = max(alpha, barMask);
+                }
+            }
+
+            fragColor = vec4(color, alpha * 0.9);
+        }`;
+
+        return this.createProgram(vs, fs);
+    }
+
+    private createProgram(vs: string, fs: string): WebGLProgram {
+        const gl = this.gl;
+        const vShader = gl.createShader(gl.VERTEX_SHADER)!;
+        gl.shaderSource(vShader, vs);
+        gl.compileShader(vShader);
+
+        const fShader = gl.createShader(gl.FRAGMENT_SHADER)!;
+        gl.shaderSource(fShader, fs);
+        gl.compileShader(fShader);
+
+        const program = gl.createProgram()!;
+        gl.attachShader(program, vShader);
+        gl.attachShader(program, fShader);
+        gl.linkProgram(program);
+
+        return program;
+    }
+
+    private initQuad(): WebGLVertexArrayObject {
+        const gl = this.gl;
+        const vao = gl.createVertexArray()!;
+        gl.bindVertexArray(vao);
+
+        const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
+
+        gl.bindVertexArray(null);
+        return vao;
+    }
+
+    update(deltaTime: number, energy: number = 0): void {
+        // Speed up based on energy
+        this.time += deltaTime * (1.0 + energy * 2.0);
+        // Shift hue based on energy
+        this.baseHue += deltaTime * energy * 0.3;
+    }
+
+    draw(frequencyData: Float32Array): void {
+        const gl = this.gl;
+
+        gl.useProgram(this.program);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uTime'), this.time);
+        gl.uniform1i(gl.getUniformLocation(this.program, 'uBarCount'), this.barCount);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uBarHeight'), this.barHeight);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uWaveAmplitude'), this.waveAmplitude);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uWaveFrequency'), this.waveFrequency);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uBaseHue'), this.baseHue);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uSaturation'), this.saturation);
+
+        // Sample frequency bands for the bars
+        const bands = new Float32Array(32);
+        const step = Math.floor(frequencyData.length / this.barCount);
+        for (let i = 0; i < this.barCount && i < 32; i++) {
+            bands[i] = frequencyData[i * step] || 0;
+        }
+        gl.uniform1fv(gl.getUniformLocation(this.program, 'uBands'), bands);
+
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.depthMask(false);
+
+        gl.bindVertexArray(this.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        gl.depthMask(true);
+        gl.disable(gl.BLEND);
+    }
+}
+
+//=============================================================================
+// Lens Distortion - Barrel/Fisheye Post-Process Effect
+//=============================================================================
+
+export class LensDistortion {
+    private gl: WebGL2RenderingContext;
+    private program: WebGLProgram;
+    private vao: WebGLVertexArrayObject;
+
+    public strength: number = 0.0; // 0 = no distortion, 1 = max barrel
+    public chromaticAberration: number = 0.0; // RGB split amount
+
+    constructor(gl: WebGL2RenderingContext) {
+        this.gl = gl;
+        this.program = this.initShaders();
+        this.vao = this.initQuad();
+    }
+
+    private initShaders(): WebGLProgram {
+        const vs = `#version 300 es
+        layout(location = 0) in vec2 aPosition;
+        out vec2 vUv;
+        void main() {
+            vUv = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+        }`;
+
+        const fs = `#version 300 es
+        precision highp float;
+
+        in vec2 vUv;
+        out vec4 fragColor;
+
+        uniform sampler2D uTexture;
+        uniform float uStrength;
+        uniform float uChromatic;
+
+        vec2 barrelDistort(vec2 uv, float strength) {
+            vec2 centered = uv - 0.5;
+            float dist = length(centered);
+            float distPow = dist * dist;
+
+            // Barrel distortion formula
+            float factor = 1.0 + strength * distPow;
+
+            return centered * factor + 0.5;
+        }
+
+        void main() {
+            vec2 uv = vUv;
+
+            if (uStrength < 0.001 && uChromatic < 0.001) {
+                // No effect, passthrough
+                fragColor = texture(uTexture, uv);
+                return;
+            }
+
+            // Chromatic aberration - sample RGB at different distortion levels
+            float rStrength = uStrength * (1.0 + uChromatic);
+            float gStrength = uStrength;
+            float bStrength = uStrength * (1.0 - uChromatic);
+
+            vec2 uvR = barrelDistort(uv, rStrength);
+            vec2 uvG = barrelDistort(uv, gStrength);
+            vec2 uvB = barrelDistort(uv, bStrength);
+
+            // Sample with bounds check
+            float r = (uvR.x >= 0.0 && uvR.x <= 1.0 && uvR.y >= 0.0 && uvR.y <= 1.0)
+                      ? texture(uTexture, uvR).r : 0.0;
+            float g = (uvG.x >= 0.0 && uvG.x <= 1.0 && uvG.y >= 0.0 && uvG.y <= 1.0)
+                      ? texture(uTexture, uvG).g : 0.0;
+            float b = (uvB.x >= 0.0 && uvB.x <= 1.0 && uvB.y >= 0.0 && uvB.y <= 1.0)
+                      ? texture(uTexture, uvB).b : 0.0;
+
+            // Vignette to hide edge artifacts
+            float vignette = 1.0 - smoothstep(0.4, 0.7, length(vUv - 0.5));
+
+            fragColor = vec4(r, g, b, 1.0) * vignette + vec4(0.0, 0.0, 0.0, 1.0) * (1.0 - vignette);
+        }`;
+
+        return this.createProgram(vs, fs);
+    }
+
+    private createProgram(vs: string, fs: string): WebGLProgram {
+        const gl = this.gl;
+        const vShader = gl.createShader(gl.VERTEX_SHADER)!;
+        gl.shaderSource(vShader, vs);
+        gl.compileShader(vShader);
+
+        const fShader = gl.createShader(gl.FRAGMENT_SHADER)!;
+        gl.shaderSource(fShader, fs);
+        gl.compileShader(fShader);
+
+        const program = gl.createProgram()!;
+        gl.attachShader(program, vShader);
+        gl.attachShader(program, fShader);
+        gl.linkProgram(program);
+
+        return program;
+    }
+
+    private initQuad(): WebGLVertexArrayObject {
+        const gl = this.gl;
+        const vao = gl.createVertexArray()!;
+        gl.bindVertexArray(vao);
+
+        const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
+
+        gl.bindVertexArray(null);
+        return vao;
+    }
+
+    /**
+     * Update distortion based on bass energy
+     */
+    update(bassEnergy: number): void {
+        // Distortion pulses on bass hits
+        this.strength = bassEnergy * 0.3;
+        this.chromaticAberration = bassEnergy * 0.5;
+    }
+
+    /**
+     * Apply distortion to a texture and render to screen
+     */
+    draw(texture: WebGLTexture): void {
+        const gl = this.gl;
+
+        gl.useProgram(this.program);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uStrength'), this.strength);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uChromatic'), this.chromaticAberration);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1i(gl.getUniformLocation(this.program, 'uTexture'), 0);
+
+        gl.bindVertexArray(this.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+}
+
+//=============================================================================
+// Tunnel Effect - Classic Infinite Zoom Tunnel
+//=============================================================================
+
+export class Tunnel {
+    private gl: WebGL2RenderingContext;
+    private program: WebGLProgram;
+    private vao: WebGLVertexArrayObject;
+    private time: number = 0;
+
+    public speed: number = 1.0;
+    public rotation: number = 0.0;
+    public colorShift: number = 0.0;
+    public ringCount: number = 20.0;
+    public twist: number = 0.3;
+
+    constructor(gl: WebGL2RenderingContext) {
+        this.gl = gl;
+        this.program = this.initShaders();
+        this.vao = this.initQuad();
+    }
+
+    private initShaders(): WebGLProgram {
+        const vs = `#version 300 es
+        layout(location = 0) in vec2 aPosition;
+        out vec2 vUv;
+        void main() {
+            vUv = aPosition;
+            gl_Position = vec4(aPosition, 0.999, 1.0);
+        }`;
+
+        const fs = `#version 300 es
+        precision highp float;
+
+        in vec2 vUv;
+        out vec4 fragColor;
+
+        uniform float uTime;
+        uniform float uSpeed;
+        uniform float uRotation;
+        uniform float uColorShift;
+        uniform float uRingCount;
+        uniform float uTwist;
+        uniform float uEnergy;
+        uniform float uAspect;
+
+        vec3 hsv2rgb(vec3 c) {
+            vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+            vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+            return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+        }
+
+        void main() {
+            // Center and aspect-correct coordinates
+            vec2 uv = vUv;
+            uv.x *= uAspect;
+
+            // Convert to polar coordinates
+            float dist = length(uv);
+            float angle = atan(uv.y, uv.x);
+
+            // Infinite zoom effect - distance becomes depth
+            float depth = 1.0 / max(dist, 0.001);
+
+            // Moving through tunnel
+            depth += uTime * uSpeed;
+
+            // Twist increases with depth (scaled up for visible effect)
+            angle += depth * uTwist * 3.0 + uRotation;
+
+            // Create ring pattern
+            float rings = fract(depth * 0.1 * uRingCount);
+
+            // Create segment pattern
+            float segments = fract(angle / 6.28318 * 8.0 + depth * 0.02);
+
+            // Checker pattern
+            float checker = step(0.5, rings) * step(0.5, segments) +
+                           step(rings, 0.5) * step(segments, 0.5);
+
+            // Color based on depth and angle
+            float hue = fract(depth * 0.05 + angle / 6.28318 + uColorShift);
+            float sat = 0.7 + 0.3 * checker;
+            float val = 0.3 + 0.4 * checker + uEnergy * 0.3;
+
+            // Ring highlight
+            float ringHighlight = abs(fract(depth * 0.1 * uRingCount) - 0.5) * 2.0;
+            ringHighlight = pow(ringHighlight, 4.0);
+            val += ringHighlight * 0.2;
+
+            // Fade at edges (tunnel walls)
+            float fade = smoothstep(0.0, 0.3, dist);
+
+            // Fade at center (vanishing point)
+            float centerFade = smoothstep(0.0, 0.1, dist);
+
+            vec3 color = hsv2rgb(vec3(hue, sat, val));
+            color *= fade * centerFade;
+
+            // Add glow at center
+            float centerGlow = exp(-dist * 8.0) * uEnergy;
+            color += vec3(0.5, 0.3, 1.0) * centerGlow;
+
+            fragColor = vec4(color, 1.0);
+        }`;
+
+        return this.createProgram(vs, fs);
+    }
+
+    private createProgram(vs: string, fs: string): WebGLProgram {
+        const gl = this.gl;
+        const vShader = gl.createShader(gl.VERTEX_SHADER)!;
+        gl.shaderSource(vShader, vs);
+        gl.compileShader(vShader);
+
+        const fShader = gl.createShader(gl.FRAGMENT_SHADER)!;
+        gl.shaderSource(fShader, fs);
+        gl.compileShader(fShader);
+
+        const program = gl.createProgram()!;
+        gl.attachShader(program, vShader);
+        gl.attachShader(program, fShader);
+        gl.linkProgram(program);
+
+        return program;
+    }
+
+    private initQuad(): WebGLVertexArrayObject {
+        const gl = this.gl;
+        const vao = gl.createVertexArray()!;
+        gl.bindVertexArray(vao);
+
+        const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
+
+        gl.bindVertexArray(null);
+        return vao;
+    }
+
+    update(deltaTime: number, energy: number = 0): void {
+        const speedBoost = 1.0 + energy * 3.0;
+        this.time += deltaTime * this.speed * speedBoost;
+        this.rotation += deltaTime * 0.2 * (1.0 + energy);
+        this.colorShift += deltaTime * 0.1;
+    }
+
+    draw(aspect: number, energy: number = 0): void {
+        const gl = this.gl;
+
+        gl.useProgram(this.program);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uTime'), this.time);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uSpeed'), this.speed);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uRotation'), this.rotation);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uColorShift'), this.colorShift);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uRingCount'), this.ringCount);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uTwist'), this.twist);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uEnergy'), energy);
+        gl.uniform1f(gl.getUniformLocation(this.program, 'uAspect'), aspect);
+
+        gl.depthMask(false);
+        gl.bindVertexArray(this.vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.depthMask(true);
+    }
+}

@@ -14,7 +14,13 @@ import {
     ReflectiveFloor,
     PerformanceMonitor,
     EffectsConfig,
-    defaultEffectsConfig
+    defaultEffectsConfig,
+    // Tier 2 effects
+    PlasmaBackground,
+    Starfield,
+    Tunnel,
+    CopperBars,
+    LensDistortion
 } from '../src/Effects';
 
 // Audio Context
@@ -67,6 +73,13 @@ let colorCycler: ColorCycler | null = null;
 let particleSystem: ParticleSystem | null = null;
 let reflectiveFloor: ReflectiveFloor | null = null;
 let perfMonitor: PerformanceMonitor | null = null;
+
+// Tier 2 Effects
+let plasma: PlasmaBackground | null = null;
+let starfield: Starfield | null = null;
+let tunnel: Tunnel | null = null;
+let copperBars: CopperBars | null = null;
+let lensDistortion: LensDistortion | null = null;
 
 // Stats canvas
 const statsCanvas = document.getElementById('statsCanvas') as HTMLCanvasElement;
@@ -151,6 +164,13 @@ function initViz() {
     particleSystem = new ParticleSystem(gl, 3000);
     reflectiveFloor = new ReflectiveFloor(gl);
     perfMonitor = new PerformanceMonitor(gl);
+
+    // Tier 2 Effects
+    plasma = new PlasmaBackground(gl);
+    starfield = new Starfield(gl, 1500);
+    tunnel = new Tunnel(gl);
+    copperBars = new CopperBars(gl);
+    lensDistortion = new LensDistortion(gl);
 
     // Wire up effect checkboxes
     document.getElementById('fx-bloom')?.addEventListener('change', (e) => {
@@ -396,6 +416,38 @@ function loop() {
     } else if (currentMode === 'waveform') {
         vizWave?.update(timeL, timeR);
         vizWave?.draw();
+    } else if (currentMode === 'plasma') {
+        // Plasma background - Gammatone ERB reactive
+        // Pass the frequency band data (works with both FFT and Gammatone)
+        plasma?.update(deltaTime, vizDataL);
+        plasma?.draw();
+    } else if (currentMode === 'starfield') {
+        // Starfield - bass reactive speed
+        const energy = beatDetector?.smoothedEnergy || 0;
+        const aspect = canvas.width / canvas.height;
+
+        // Change star color on beat
+        if (beatDetector?.beatDetected && starfield) {
+            starfield.starColor = [
+                0.5 + Math.random() * 0.5,
+                0.5 + Math.random() * 0.5,
+                0.5 + Math.random() * 0.5
+            ];
+        }
+
+        starfield?.update(deltaTime, energy);
+        starfield?.draw(aspect);
+    } else if (currentMode === 'tunnel') {
+        // Tunnel - audio reactive speed and twist
+        const energy = beatDetector?.smoothedEnergy || 0;
+        const aspect = canvas.width / canvas.height;
+        tunnel?.update(deltaTime, energy);
+        tunnel?.draw(aspect, energy);
+    } else if (currentMode === 'copper') {
+        // Copper bars - frequency bands drive bar heights
+        const energy = beatDetector?.smoothedEnergy || 0;
+        copperBars?.update(deltaTime, energy);
+        copperBars?.draw(vizDataL);
     }
     // Update Time Display
     if (audioCtx.state === 'running') {

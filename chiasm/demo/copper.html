@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chiasm - Copper Bars Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: system-ui, sans-serif;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        #overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            z-index: 100;
+        }
+        #overlay.hidden { display: none; }
+        #overlay h1 { font-size: 3rem; margin-bottom: 0.5rem; }
+        #overlay p { color: #888; margin-bottom: 2rem; }
+        #overlay button {
+            padding: 1rem 2rem;
+            font-size: 1.2rem;
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 0.5rem;
+        }
+        #overlay button:hover { background: #444; }
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 12px;
+            z-index: 50;
+        }
+        #controls label { display: block; margin: 5px 0; }
+        #controls input[type="range"] { width: 150px; vertical-align: middle; }
+        #controls button {
+            padding: 8px 16px;
+            margin-top: 10px;
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #stats {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.6);
+            padding: 8px;
+            border-radius: 4px;
+            color: #0f0;
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body>
+    <div id="overlay">
+        <h1>Copper Bars</h1>
+        <p>Amiga-style horizontal gradient bands with audio reactivity</p>
+        <button id="loadDemo">Load Demo (White Noise)</button>
+        <input type="file" id="fileInput" accept="audio/*" style="display:none">
+        <button id="loadUser">Load Audio File</button>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <div id="controls">
+        <label>Bar Count: <input type="range" id="barCount" min="4" max="24" step="1" value="8"> <span id="barCountVal">8</span></label>
+        <label>Bar Height: <input type="range" id="barHeight" min="0.02" max="0.2" step="0.01" value="0.08"> <span id="barHeightVal">0.08</span></label>
+        <label>Wave Amplitude: <input type="range" id="waveAmp" min="0" max="0.8" step="0.05" value="0.3"> <span id="waveAmpVal">0.3</span></label>
+        <label>Wave Frequency: <input type="range" id="waveFreq" min="0.5" max="5" step="0.25" value="2"> <span id="waveFreqVal">2</span></label>
+        <label>Saturation: <input type="range" id="saturation" min="0" max="1" step="0.05" value="0.8"> <span id="satVal">0.8</span></label>
+        <button id="playPause">Pause</button>
+    </div>
+
+    <div id="stats">FPS: --</div>
+
+    <script type="module" src="./copper.ts"></script>
+</body>
+</html>

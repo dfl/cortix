@@ -13,17 +13,33 @@
         <button id="loadDemo">Load Demo Noise</button>
         <input type="file" id="fileInput" accept="audio/*" style="display:none">
         <button id="loadUser">Load File</button>
+        <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #333;">
+            <p style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">Standalone demos (more controls):</p>
+            <a href="plasma.html" style="color: #88f; margin: 0 0.5rem; font-size: 0.9rem;">Plasma</a>
+            <a href="starfield.html" style="color: #88f; margin: 0 0.5rem; font-size: 0.9rem;">Starfield/Tunnel</a>
+            <a href="copper.html" style="color: #88f; margin: 0 0.5rem; font-size: 0.9rem;">Copper Bars</a>
+        </div>
     </div>
 
     <details id="ui" open>
         <summary>Controls</summary>
         <div class="controls">
             <select id="vizSelector">
-                <option value="viz3d_cubes">3D Waterfall (Cubes)</option>
-                <option value="viz3d_lines">3D Ridgeline (Lines)</option>
-                <option value="viz3d_filled">3D Ridgeline (Filled)</option>
-                <option value="viz2d">2D Spectrogram</option>
-                <option value="waveform">Waveform (SOTA)</option>
+                <optgroup label="3D Visualizations">
+                    <option value="viz3d_cubes">3D Waterfall (Cubes)</option>
+                    <option value="viz3d_lines">3D Ridgeline (Lines)</option>
+                    <option value="viz3d_filled">3D Ridgeline (Filled)</option>
+                </optgroup>
+                <optgroup label="2D Visualizations">
+                    <option value="viz2d">2D Spectrogram</option>
+                    <option value="waveform">Waveform (SOTA)</option>
+                </optgroup>
+                <optgroup label="Demoscene Effects">
+                    <option value="plasma">Plasma</option>
+                    <option value="starfield">Starfield</option>
+                    <option value="tunnel">Tunnel</option>
+                    <option value="copper">Copper Bars</option>
+                </optgroup>
             </select>
             <select id="analysisSelector" title="Frequency Analysis">
                 <option value="fft">FFT (Web Audio)</option>
