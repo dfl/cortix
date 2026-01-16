@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chiasm Demo</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="overlay">
+        <h1>Chiasm</h1>
+        <p>Drag & Drop Audio File or Click to Load Demo</p>
+        <button id="loadDemo">Load Demo Noise</button>
+        <input type="file" id="fileInput" accept="audio/*" style="display:none">
+        <button id="loadUser">Load File</button>
+    </div>
+
+    <div id="ui">
+        <div class="controls">
+            <select id="vizSelector">
+                <option value="viz3d_cubes">3D Waterfall (Cubes)</option>
+                <option value="viz3d_lines">3D Ridgeline (Joy Division)</option>
+                <option value="viz2d">2D Spectrogram</option>
+                <option value="waveform">Waveform (SOTA)</option>
+            </select>
+            <div class="meters">
+                <canvas id="meter-corr" width="100" height="20"></canvas>
+                <canvas id="meter-gonio" width="100" height="100"></canvas>
+            </div>
+            <div class="status">
+                <span id="timeDisplay">00:00</span>
+                <button id="playPause">⏸</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container">
+        <!-- We will swap canvases or just hide/show -->
+        <canvas id="mainCanvas"></canvas>
+        <div id="viz2d-overlay"></div> 
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+</body>
+</html>
