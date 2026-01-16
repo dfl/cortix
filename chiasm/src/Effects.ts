@@ -708,6 +708,9 @@ export class BloomEffect {
         const gl = this.gl;
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFbo);
         gl.viewport(0, 0, this.width, this.height);
+        // Clear the scene FBO to prevent stale content from previous modes
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     }
 
     /**
@@ -1594,7 +1597,8 @@ export class Starfield {
             float alpha = brightness * vAlpha;
             if (alpha < 0.01) discard;
 
-            fragColor = vec4(uColor * brightness, alpha);
+            // Scale down to prevent bloom washout with additive blending
+            fragColor = vec4(uColor * brightness * 0.5, alpha);
         }`;
 
         return this.createProgram(vs, fs);
@@ -1670,9 +1674,10 @@ export class Starfield {
         this.hue += deltaTime * (0.1 + this.mids * 0.5);
 
         // Update star color based on mids/highs (HSV to RGB)
+        // Keep brightness lower to prevent bloom washout
         const h = this.hue % 1;
-        const s = 0.5 + this.highs * 0.5;
-        const v = 0.8 + this.bass * 0.2;
+        const s = 0.6 + this.highs * 0.3;
+        const v = 0.4 + this.bass * 0.2;
         // Simple HSV to RGB
         const i = Math.floor(h * 6);
         const f = h * 6 - i;
@@ -2287,24 +2292,24 @@ export class Tunnel {
         }
 
         // Bass drives forward speed
-        const speedBoost = 1.0 + this.bass * 4.0;
+        const speedBoost = 1.0 + this.bass * 2.0;
         this.time += deltaTime * this.speed * speedBoost;
 
-        // Mids drive rotation
-        this.rotation += deltaTime * (0.2 + this.mids * 1.5);
+        // Slow constant rotation (not audio reactive - too crazy)
+        this.rotation += deltaTime * 0.1;
 
-        // Highs shift colors
-        this.colorShift += deltaTime * (0.1 + this.highs * 0.8);
+        // Mids and highs shift colors
+        this.colorShift += deltaTime * (0.05 + this.mids * 0.3 + this.highs * 0.2);
     }
 
     draw(aspect: number): void {
         const gl = this.gl;
 
-        // Dynamic twist based on mids
-        const dynamicTwist = this.twist * (1.0 + this.mids * 2.0);
+        // Constant twist (not audio reactive)
+        const dynamicTwist = this.twist;
 
-        // Dynamic ring count based on highs
-        const dynamicRings = this.ringCount * (1.0 + this.highs * 0.5);
+        // Constant ring count
+        const dynamicRings = this.ringCount;
 
         gl.useProgram(this.program);
         gl.uniform1f(gl.getUniformLocation(this.program, 'uTime'), this.time);
