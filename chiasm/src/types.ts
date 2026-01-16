@@ -15,7 +15,7 @@ export interface BaseVizConfig {
 
 export interface Viz3DConfig extends BaseVizConfig {
     /** Visualization Mode */
-    visualMode?: 'Cubes' | 'Lines';
+    visualMode?: 'Cubes' | 'Lines' | 'FilledRidge';
 
     /** Number of frequency bins (cubes along X axis) */
     xAmount: number;

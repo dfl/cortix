@@ -15,14 +15,30 @@
         <button id="loadUser">Load File</button>
     </div>
 
-    <div id="ui">
+    <details id="ui" open>
+        <summary>Controls</summary>
         <div class="controls">
             <select id="vizSelector">
                 <option value="viz3d_cubes">3D Waterfall (Cubes)</option>
-                <option value="viz3d_lines">3D Ridgeline (Joy Division)</option>
+                <option value="viz3d_lines">3D Ridgeline (Lines)</option>
+                <option value="viz3d_filled">3D Ridgeline (Filled)</option>
                 <option value="viz2d">2D Spectrogram</option>
                 <option value="waveform">Waveform (SOTA)</option>
             </select>
+            <select id="analysisSelector" title="Frequency Analysis">
+                <option value="fft">FFT (Web Audio)</option>
+                <option value="gammatone_erb">Gammatone (ERB)</option>
+                <option value="gammatone_bark">Gammatone (Bark)</option>
+                <option value="gammatone_mel">Gammatone (Mel)</option>
+                <option value="gammatone_log">Gammatone (Log)</option>
+            </select>
+            <div class="effects-panel">
+                <label><input type="checkbox" id="fx-bloom" checked> Bloom</label>
+                <label><input type="checkbox" id="fx-reflect" checked> Reflect</label>
+                <label><input type="checkbox" id="fx-shake" checked> Shake</label>
+                <label><input type="checkbox" id="fx-colors" checked> Colors</label>
+                <label><input type="checkbox" id="fx-particles" checked> Particles</label>
+            </div>
             <div class="meters">
                 <canvas id="meter-corr" width="100" height="20"></canvas>
                 <canvas id="meter-gonio" width="100" height="100"></canvas>
@@ -32,12 +48,13 @@
                 <button id="playPause">⏸</button>
             </div>
         </div>
-    </div>
+    </details>
 
     <div id="canvas-container">
         <!-- We will swap canvases or just hide/show -->
         <canvas id="mainCanvas"></canvas>
-        <div id="viz2d-overlay"></div> 
+        <canvas id="statsCanvas" width="100" height="55"></canvas>
+        <div id="viz2d-overlay"></div>
     </div>
 
     <script type="module" src="./main.ts"></script>

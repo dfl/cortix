@@ -34,12 +34,30 @@ body {
     z-index: 10;
     background: var(--panel);
     backdrop-filter: blur(10px);
-    padding: 20px;
+    padding: 12px;
     border-radius: 8px;
     border: 1px solid #333;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
+}
+#ui summary {
+    cursor: pointer;
+    font-weight: bold;
+    padding: 4px 8px;
+    margin: -4px -4px 8px -4px;
+    user-select: none;
+    list-style: none;
+}
+#ui summary::-webkit-details-marker {
+    display: none;
+}
+#ui summary::before {
+    content: '▼ ';
+    font-size: 10px;
+}
+#ui:not([open]) summary::before {
+    content: '▶ ';
+}
+#ui:not([open]) {
+    padding: 8px 12px;
 }
 
 .controls {
@@ -95,4 +113,49 @@ canvas {
 }
 #overlay.hidden {
     display: none;
+}
+
+.effects-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+    background: #111;
+    border-radius: 4px;
+    font-size: 11px;
+}
+.effects-panel label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+.effects-panel input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+}
+
+#statsCanvas {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    z-index: 15;
+    border: none;
+    background: transparent;
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+#timeDisplay {
+    font-family: monospace;
+    font-size: 14px;
+}
+#playPause {
+    padding: 6px 12px;
+    min-width: 40px;
 }
